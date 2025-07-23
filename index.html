@@ -33,6 +33,11 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+    
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Montserrat:wght@400;500;700&display=swap" rel="stylesheet">
@@ -51,10 +56,7 @@
 <body class="bg-gray-100">
     <div id="root"></div>
 
-    <script type="text/babel" data-type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc, serverTimestamp, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    <script type="text/babel">
         import { Star, Trash2, Users, Shield, PlusCircle, History, Award, ShieldAlert, Trophy, Share2, Camera } from 'https://cdn.skypack.dev/lucide-react';
 
         // --- Configuração do Firebase ---
@@ -62,9 +64,9 @@
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-voley-app';
 
         // --- Inicialização do Firebase ---
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
 
         // --- Componente Principal da Aplicação ---
         function App() {
@@ -81,16 +83,16 @@
             const [confirmModal, setConfirmModal] = useState({ isOpen: false, message: '', onConfirm: null });
 
             useEffect(() => {
-                const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+                const unsubscribeAuth = auth.onAuthStateChanged(async (user) => {
                     if (user) {
                         setUserId(user.uid);
                         setIsAuthReady(true);
                     } else {
                         try {
                             if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                                await signInWithCustomToken(auth, __initial_auth_token);
+                                await auth.signInWithCustomToken(__initial_auth_token);
                             } else {
-                                await signInAnonymously(auth);
+                                await auth.signInAnonymously();
                             }
                         } catch (err) {
                             console.error("Erro na autenticação:", err);
@@ -108,8 +110,7 @@
                 setIsLoading(true);
                 
                 const playersCollectionPath = `/artifacts/${appId}/public/data/players`;
-                const playersQuery = query(collection(db, playersCollectionPath));
-                const unsubscribePlayers = onSnapshot(playersQuery, (querySnapshot) => {
+                const unsubscribePlayers = db.collection(playersCollectionPath).onSnapshot((querySnapshot) => {
                     const playersData = querySnapshot.docs.map(doc => {
                         const data = doc.data();
                         const votesMap = data.votes || {};
@@ -129,8 +130,7 @@
                 });
 
                 const historyCollectionPath = `/artifacts/${appId}/public/data/drawHistory`;
-                const historyQuery = query(collection(db, historyCollectionPath));
-                const unsubscribeHistory = onSnapshot(historyQuery, (querySnapshot) => {
+                const unsubscribeHistory = db.collection(historyCollectionPath).onSnapshot((querySnapshot) => {
                     const historyData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                     historyData.sort((a, b) => b.timestamp?.seconds - a.timestamp?.seconds);
                     setDrawHistory(historyData);
@@ -141,25 +141,25 @@
 
             const handleAddPlayer = async (name, nickname) => {
                 if (!name.trim()) return;
-                await addDoc(collection(db, `/artifacts/${appId}/public/data/players`), {
-                    name: name.trim(), nickname: nickname.trim(), votes: {}, isAvailable: true, createdAt: serverTimestamp()
+                await db.collection(`/artifacts/${appId}/public/data/players`).add({
+                    name: name.trim(), nickname: nickname.trim(), votes: {}, isAvailable: true, createdAt: firebase.firestore.FieldValue.serverTimestamp()
                 });
             };
 
             const handleUpdatePlayer = async (id, data) => {
-                await updateDoc(doc(db, `/artifacts/${appId}/public/data/players`, id), data);
+                await db.collection(`/artifacts/${appId}/public/data/players`).doc(id).update(data);
             };
 
             const handleDeletePlayer = (id) => {
                 setConfirmModal({
                     isOpen: true, message: 'Tem certeza que deseja excluir este jogador?',
-                    onConfirm: async () => { await deleteDoc(doc(db, `/artifacts/${appId}/public/data/players`, id)); }
+                    onConfirm: async () => { await db.collection(`/artifacts/${appId}/public/data/players`).doc(id).delete(); }
                 });
             };
 
             const handleVote = async (playerId, rating) => {
                 if (!userId) return;
-                await updateDoc(doc(db, `/artifacts/${appId}/public/data/players`, playerId), { [`votes.${userId}`]: rating });
+                await db.collection(`/artifacts/${appId}/public/data/players`).doc(playerId).update({ [`votes.${userId}`]: rating });
             };
             
             const handleDrawTeams = async (numTeams) => {
@@ -188,8 +188,8 @@
                 setDrawnTeams(finalTeams);
                 setActiveTab('sorteio');
 
-                await addDoc(collection(db, `/artifacts/${appId}/public/data/drawHistory`), {
-                    timestamp: serverTimestamp(),
+                await db.collection(`/artifacts/${appId}/public/data/drawHistory`).add({
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
                     teams: finalTeams.map(t => ({
                         teamName: t.teamName, avgTeamRating: t.avgTeamRating,
                         players: t.players.map(p => ({name: p.name, nickname: p.nickname, avgRating: p.avgRating}))
